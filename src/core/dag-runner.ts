@@ -31,11 +31,44 @@ export function buildDAGRunner(db: Database) {
       return ctx;
     }
 
-    for (const nodeId of topologicalSort(resolvedNodes)) {
+    let order: string[];
+    try {
+      order = topologicalSort(resolvedNodes);
+    } catch (err) {
+      await eventStore.append({
+        type: "node:failed",
+        nodeId: runId,
+        patch: { error: (err as Error).message },
+      });
+      throw err;
+    }
+
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY_MS = 1000;
+
+    for (const nodeId of order) {
       await eventStore.append({ type: "node:started", nodeId });
 
       const node = resolvedNodes.find((n) => n.id === nodeId)!;
-      const result = await node.run(Object.freeze({ ...ctx }), node.config);
+      let result: Awaited<ReturnType<typeof node.run>>;
+      let attempt = 0;
+      while (true) {
+        try {
+          result = await node.run(Object.freeze({ ...ctx }), node.config);
+          break;
+        } catch (err) {
+          attempt++;
+          if (attempt >= MAX_RETRIES) {
+            await eventStore.append({
+              type: "node:failed",
+              nodeId,
+              patch: { error: (err as Error).message },
+            });
+            throw err;
+          }
+          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+        }
+      }
       ctx[nodeId] = result.patch;
 
       if (result.status === "pending") {
