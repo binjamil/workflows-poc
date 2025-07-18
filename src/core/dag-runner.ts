@@ -2,8 +2,24 @@ import type { Database } from "../db";
 import type { Context, Node, Event } from "./types";
 import { buildEventStore } from "./event-store";
 import { buildNodeRegistry } from "./node-registry";
+import type { MessageBus } from "../msgbus";
 
-export function buildDAGRunner(db: Database) {
+export function buildDAGRunner(db: Database, bus: MessageBus) {
+  let running = false;
+
+  async function start() {
+    running = true;
+    while (running) {
+      const msg = await bus.poll("workflow:start");
+      if (!msg) continue;
+      await run(msg.runId);
+    }
+  }
+
+  function stop() {
+    running = false;
+  }
+
   /**
    * Executes a workflow run by processing events and running nodes in dependency order.
    *
@@ -25,6 +41,12 @@ export function buildDAGRunner(db: Database) {
     const events = await eventStore.all();
     const resolvedNodes = resolveNodes(nodes, events);
     const ctx = rebuildContext(events);
+
+    if (events.length === 0) {
+      const meta = { runId };
+      await eventStore.append({ type: "workflow:started", patch: meta });
+      ctx["meta"] = meta;
+    }
 
     const lastEvent = events[events.length - 1];
     if (lastEvent?.type === "node:pending" || lastEvent?.type === "workflow:completed") {
@@ -51,7 +73,8 @@ export function buildDAGRunner(db: Database) {
   }
 
   return {
-    run,
+    start,
+    stop,
   };
 }
 
@@ -96,9 +119,10 @@ function topologicalSort(nodes: Node[]): string[] {
  * Processes events to reconstruct the current state of each node by applying
  * patches from completed and pending node events to build the context object.
  */
-function rebuildContext(events: Event[]): Context {
+export function rebuildContext(events: Event[]): Context {
   const ctx: Context = {};
   for (const ev of events) {
+    if (ev.type === "workflow:started") ctx["meta"] = ev.patch;
     if (ev.type === "node:completed") ctx[ev.nodeId] = ev.patch;
     if (ev.type === "node:pending") ctx[ev.nodeId] = ev.patch;
   }

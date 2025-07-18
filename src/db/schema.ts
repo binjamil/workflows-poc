@@ -36,3 +36,14 @@ export const workflowEvents = pgTable(
   },
   (t) => [unique().on(t.runId, t.seq), unique().on(t.runId, t.type, t.nodeId)]
 );
+
+export const payments = pgTable("payments", {
+  paymentId: text()
+    .primaryKey()
+    .$defaultFn(() => "pay_" + createId()),
+  runId: text()
+    .references(() => workflowRuns.runId)
+    .notNull(),
+  amount: integer(),
+  status: text(),
+});

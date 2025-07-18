@@ -4,74 +4,53 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Development Commands
 
-- `bun src/main.ts` or `bun dev` - Run the main workflow execution demo
-- `bun src/seed.ts` or `bun db:seed` - Seed the database with sample workflow definitions
+- `bun dev` - Run the REST API server with hot reload
+- `bun db:seed` - Seed the database with sample workflow definitions
 - `bun db:push` - Push database schema changes using Drizzle Kit
 - `bun db:studio` - Open Drizzle Studio for database inspection
 
 ## Core Architecture
 
-This is an **event-driven workflow execution system** built with functional composition patterns. The system executes workflows as directed acyclic graphs (DAGs) where nodes represent tasks with dependencies.
+**Event-driven workflow execution REST API** that executes workflows as directed acyclic graphs (DAGs) using functional composition patterns.
 
 ### Key Components
 
-**DAG Runner (`src/core/dag-runner.ts`)**
-- Central orchestrator that executes workflow runs
-- Uses topological sorting (Kahn's algorithm) to determine execution order
-- Handles event sourcing and context rebuilding
-- Supports resumable execution via event replay
+- **DAG Runner** - Central orchestrator using topological sorting, event sourcing, and resumable execution
+- **Event Store** - Append-only event log with events: `workflow:started`, `node:started/pending/completed`, `workflow:completed`
+- **Message Bus** - Redis-based async processing using LPUSH/BRPOP pattern
+- **Node Registry** - Factory pattern for node type resolution (query, log, payment)
+- **Workflow Status** - Event-sourced status derivation: `created`, `running`, `pending`, `completed`, `failed`
 
-**Event Store (`src/core/event-store.ts`)**
-- Implements event sourcing pattern for workflow state
-- Events: `node:started`, `node:pending`, `node:completed`, `workflow:completed`
-- Provides append-only event log with sequence numbers
+### REST API Endpoints
 
-**Node Registry (`src/core/node-registry.ts`)**
-- Factory pattern for node type resolution (query, log, payment)
-- Maps node IDs (format: `type:counter`) to execution functions
-- Loads workflow definitions from database
-
-**Node Architecture**
-- All nodes implement the same interface: `(ctx, config) => Promise<RunResult>`
-- Nodes are pure functions that receive immutable context snapshots
-- Return either `{status: "completed", patch}` or `{status: "pending", patch}`
-- Context is built by applying patches from completed/pending nodes
-
-### Functional Composition Patterns
-
-1. **Builder Pattern**: All core components use builder functions (`buildDAGRunner`, `buildEventStore`, `buildNodeRegistry`)
-2. **Dependency Injection**: Database instance is injected into all builders
-3. **Pure Functions**: Nodes are side-effect free, context is immutable
-4. **Function Composition**: Complex workflows built by composing simple node functions
-5. **Event Sourcing**: State rebuilt through function application over event streams
-
-### Database Schema
-
-- `workflow_definitions` - Stores workflow DAG definitions (nodes array in JSONB)
-- `workflow_runs` - Tracks individual workflow executions
-- `workflow_events` - Event log with sequence ordering and unique constraints
+- `POST /v1/workflows/run` - Start workflow execution
+- `POST /v1/workflows/resume` - Resume workflow by runId
+- `GET /v1/workflows/status?runId=X` - Get workflow status and context
+- `GET /v1/workflows/events?runId=X` - Get workflow events
+- `POST /v1/payments/settle` - Settle payment and resume workflow
 
 ### Tech Stack
 
 - **Runtime**: Bun with TypeScript
 - **Database**: PostgreSQL with Drizzle ORM
+- **Message Bus**: Redis
+- **REST API**: Express.js
 - **Architecture**: Event sourcing + Functional composition
-- **Future**: Redis planned as message bus (LPUSH + BRPOP pattern)
+
+### Database Schema
+
+- `workflow_definitions` - DAG definitions (JSONB nodes array)
+- `workflow_runs` - Execution tracking with status
+- `workflow_events` - Event log with sequence ordering
+- `payments` - Payment records linked to workflow runs
 
 ### Execution Flow
 
-1. Create workflow run → Load workflow definition
-2. Rebuild context from existing events  
-3. Resolve remaining nodes (filter completed dependencies)
-4. Topologically sort and execute nodes sequentially
-5. Emit events for each execution stage
-6. Handle pending nodes by early return for resumability
+1. API request → Create workflow run → Post to Redis
+2. DAG Runner polls Redis → Load definition → Rebuild context from events
+3. Execute nodes using topological sorting → Emit events → Update status
+4. Handle pending nodes for external completion (payments) → Resume via API
 
-### Node Implementation Guidelines
+### Node Implementation
 
-When implementing new node types:
-- Follow the builder pattern: `buildXNode(db: Database)`
-- Return object with `type` and `run` function
-- Use typed config interfaces
-- Register in `node-registry.ts` mappings
-- Export from `nodes/index.ts`
+All nodes follow `(ctx, config) => Promise<RunResult>` interface. Return `{status: "completed", patch}` or `{status: "pending", patch}`. Register in `node-registry.ts` and export from `nodes/index.ts`.

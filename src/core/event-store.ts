@@ -2,6 +2,7 @@ import { eq, max } from "drizzle-orm";
 import type { Database } from "../db";
 import { workflowEvents } from "../db";
 import type { Event, EventStore } from "./types";
+import { updateWorkflowRunStatus } from "./workflow-status";
 
 export function buildEventStore(db: Database, runId: string): EventStore {
   async function nextSeq(runId: string): Promise<number> {
@@ -24,6 +25,10 @@ export function buildEventStore(db: Database, runId: string): EventStore {
       patch: "patch" in ev ? ev.patch : null,
       ts: new Date(),
     });
+
+    // Update workflow run status after appending event
+    const allEvents = await all();
+    await updateWorkflowRunStatus(db, runId, allEvents);
   }
 
   async function all(): Promise<Event[]> {
@@ -37,6 +42,8 @@ export function buildEventStore(db: Database, runId: string): EventStore {
       switch (ev.type) {
         case "workflow:completed":
           return { type: "workflow:completed" };
+        case "workflow:started":
+          return { type: "workflow:started", patch: ev.patch };
         case "node:started":
           return { type: "node:started", nodeId: ev.nodeId! };
         case "node:pending":

@@ -1,6 +1,10 @@
+import express from "express";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { buildDAGRunner } from "./core/dag-runner";
-import { workflowRuns } from "./db";
+import { createClientPool } from "redis";
+import { buildMessageBus } from "./msgbus";
+import { createWorkflowRoutes } from "./routes/workflows";
+import { createPaymentRoutes } from "./routes/payments";
 
 async function main() {
   const db = drizzle({
@@ -8,25 +12,24 @@ async function main() {
     casing: "snake_case",
   });
 
-  const [workflowRun] = await db
-    .insert(workflowRuns)
-    .values({
-      workflowId: "wf_rrezbzmja52o",
-    })
-    .returning();
-
-  if (!workflowRun) {
-    throw new Error("Failed to create workflow run");
+  const redis = await createClientPool().connect();
+  if (!redis) {
+    throw new Error("Failed to connect to Redis");
   }
 
-  const runId = workflowRun.runId;
-  // const runId = "run_vn9d6iyk42cj";
+  const bus = buildMessageBus(redis);
+  const dagRunner = buildDAGRunner(db, bus);
+  dagRunner.start();
 
-  const dagRunner = buildDAGRunner(db);
-  const ctx = await dagRunner.run(runId);
-  console.log(JSON.stringify(ctx, null, 2));
+  const app = express();
+  app.use(express.json());
+  app.use("/v1/workflows", createWorkflowRoutes(db, bus));
+  app.use("/v1/payments", createPaymentRoutes(db, bus));
 
-  await db.$client.end();
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
 }
 
-main();
+main().catch(console.error);

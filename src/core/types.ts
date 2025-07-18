@@ -24,6 +24,7 @@ export interface NodeBuilder<TConfig, TPatch = unknown> {
 }
 
 export type Event =
+  | { type: "workflow:started"; patch: unknown }
   | { type: "node:started"; nodeId: string }
   | { type: "node:pending"; nodeId: string; patch: unknown }
   | { type: "node:completed"; nodeId: string; patch: unknown }
