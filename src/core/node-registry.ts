@@ -1,8 +1,8 @@
+import { eq } from "drizzle-orm";
 import type { Database } from "../db";
 import { workflowDefinitions, workflowRuns } from "../db";
-import { eq } from "drizzle-orm";
+import { buildLogNode, buildPaymentNode, buildQueryNode } from "./nodes";
 import type { Node, NodeBuilder } from "./types";
-import { buildLogNode, buildQueryNode, buildPaymentNode } from "./nodes";
 
 export function buildNodeRegistry(db: Database) {
   const builders: Record<string, NodeBuilder<any>> = {
@@ -12,10 +12,7 @@ export function buildNodeRegistry(db: Database) {
   };
 
   /**
-   * Maps a node ID to its corresponding run function.
-   *
-   * @param nodeId - The ID of the node to map.
-   * @returns The run function of the node.
+   * Maps a node type to its corresponding run function provided by builder.
    */
   function get(type: string) {
     const builder = builders[type];

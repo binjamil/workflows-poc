@@ -47,8 +47,6 @@ export function buildEventStore(db: Database, runId: string): EventStore {
             nodeId: ev.nodeId!,
             patch: ev.patch,
           };
-        case "node:failed":
-          return { type: "node:failed", nodeId: ev.nodeId!, patch: ev.patch };
         default:
           throw new Error(`Unknown event type: ${ev.type}`);
       }

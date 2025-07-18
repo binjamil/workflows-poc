@@ -27,7 +27,6 @@ export type Event =
   | { type: "node:started"; nodeId: string }
   | { type: "node:pending"; nodeId: string; patch: unknown }
   | { type: "node:completed"; nodeId: string; patch: unknown }
-  | { type: "node:failed"; nodeId: string; patch: unknown }
   | { type: "workflow:completed" };
 
 export type EventStore = {
