@@ -1,10 +1,13 @@
 import type { Database } from "../../db";
-import type { Context, RunResult } from "../types";
+import type { Context, RunResult, NodeBuilder } from "../types";
 
 type QueryConfig = { query: string };
 
-export function buildQueryNode(db: Database) {
-  async function runQuery(ctx: Context, config: QueryConfig): Promise<RunResult> {
+export function buildQueryNode(db: Database): NodeBuilder<QueryConfig> {
+  async function runQuery(
+    ctx: Context,
+    config: QueryConfig,
+  ): Promise<RunResult> {
     // Here we just return dummy data for demonstration purposes
     // In real impl, you would use db and config to execute the query
     const { query } = config;

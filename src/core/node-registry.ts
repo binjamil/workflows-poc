@@ -1,28 +1,25 @@
+import { eq } from "drizzle-orm";
 import type { Database } from "../db";
 import { workflowDefinitions, workflowRuns } from "../db";
-import { eq } from "drizzle-orm";
-import type { Node } from "./types";
-import { buildLogNode, buildQueryNode, buildPaymentNode } from "./nodes";
+import { buildLogNode, buildPaymentNode, buildQueryNode } from "./nodes";
+import type { Node, NodeBuilder } from "./types";
 
 export function buildNodeRegistry(db: Database) {
-  const nodes = [buildQueryNode(db), buildLogNode(db), buildPaymentNode(db)];
-  const mappings: Record<string, unknown> = {};
-  nodes.forEach((node) => {
-    mappings[node.type] = node.run;
-  });
+  const builders: Record<string, NodeBuilder<any>> = {
+    query: buildQueryNode(db),
+    log: buildLogNode(db),
+    payment: buildPaymentNode(db),
+  };
 
   /**
-   * Maps a node ID to its corresponding run function.
-   *
-   * @param nodeId - The ID of the node to map.
-   * @returns The run function of the node.
+   * Maps a node type to its corresponding run function provided by builder.
    */
-  function map(nodeId: string) {
-    const nodeType = nodeId.split(":")[0];
-    if (!nodeType) {
-      throw new Error(`Node type ${nodeType} not found`);
+  function get(type: string) {
+    const builder = builders[type];
+    if (!builder) {
+      throw new Error(`Node type ${type} not registered`);
     }
-    return mappings[nodeType];
+    return builder;
   }
 
   /**
@@ -42,13 +39,13 @@ export function buildNodeRegistry(db: Database) {
     return (workflowRun?.workflow_definitions.nodes as Array<any>).map((node) => {
       return {
         ...node,
-        run: map(node.id),
+        run: get(node.id.split(":")[0]).run,
       } as Node;
     });
   }
 
   return {
-    map,
+    get,
     loadNodes,
   };
 }
